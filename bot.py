@@ -41,51 +41,36 @@ def should_respond(update: Update, bot_username: str) -> bool:
     message = update.message
     if message is None:
         return False
-
-    # В личке отвечаем всегда
     if message.chat.type == "private":
         return True
-
-    # В группе — только если тегнули или ответили на сообщение бота
     if message.reply_to_message and message.reply_to_message.from_user.username == bot_username:
         return True
-
     if message.entities:
         for entity in message.entities:
             if entity.type == "mention":
                 mention = message.text[entity.offset:entity.offset + entity.length]
                 if mention.lower() == f"@{bot_username.lower()}":
                     return True
-
     return False
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     bot_username = context.bot.username
-
     if not should_respond(update, bot_username):
         return
-
     chat_id = update.effective_chat.id
     user_text = update.message.text
-
-    # Убираем упоминание бота из текста если есть
     if bot_username:
         user_text = user_text.replace(f"@{bot_username}", "").strip()
-
     if not user_text:
         user_text = "привет"
-
     if chat_id not in conversation_history:
         conversation_history[chat_id] = []
-
     conversation_history[chat_id].append({"role": "user", "content": user_text})
-
     if len(conversation_history[chat_id]) > MAX_HISTORY:
         conversation_history[chat_id] = conversation_history[chat_id][-MAX_HISTORY:]
-
     try:
         response = claude.messages.create(
-            model="claude-sonnet-4-6",
+            model="claude-haiku-4-5-20251001",
             max_tokens=1000,
             system=DOOFENSHMIRTZ_PROMPT,
             messages=conversation_history[chat_id]
@@ -108,4 +93,4 @@ app = ApplicationBuilder().token(os.environ["BOT_TOKEN"]).build()
 app.add_handler(CommandHandler("reset", reset_command))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 print("Бот запущен...")
-app.run_polling()
+app.run_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
