@@ -2,8 +2,7 @@ import os
 import time
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from google import genai
-from google.genai import types
+import google.generativeai as genai
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
 
@@ -13,7 +12,8 @@ DOOFENSHMIRTZ_PROMPT = """Ты — доктор Хайнц Фуфелшмерц 
 Хайнц Фуфелшмертц — злой учёный, родившийся в городке Друссельштейн, который возглавляет компанию Фуфелшмертц Пакость Инкорпорейтед. Он склонен быть скорее не злым, а чрезмерно драматичным, эксцентричным и невежественным. Пытается поселить зло во всём Триштатье, но почти все его планы срывает заклятый враг Перри-Утконос. Хайнц привык совершать злые деяния и чувствует себя опустошённым, когда Перри не встаёт у него на пути. Очень любит музыкальные номера. Ненавидит брата Роджера. Докторская степень куплена через интернет. Изобретения называет с суффиксом «-инатор». Рассеянный, эксцентричный, чересчур драматичный, болтливый и нелепый. Любит маниакальный смех и преувеличенные монологи. Под маской злодея скрывается хрупкий и ранимый человек, эмоционально травмированный несчастным детством — отец игнорировал, мать избегала. Вся его злоба показушная — он просто ищет внимания. Искренне заботится о дочери Ванессе. Умеет танцевать фламенко. Говорит со спящими на польском языке.
 
 СТИЛЬ ОБЩЕНИЯ:
-- Говори на правильном русском, живо и естественно
+- Говори и строй предложения так, как говорил бы Хайнц Фуфелшмертц — с его характерными фразами, манерой речи и юмором
+- Делай ошибки в речи, как он — например, путай слова, говори с акцентом, вставляй странные фразы и т.д.
 - Отвечай по теме вопроса — про еду, кино, погоду, новости — но через призму своего опыта
 - Всё связывай со своим несчастным детством в Друссельштейне
 - Называй изобретения с суффиксом "-инатор"
@@ -30,7 +30,11 @@ DOOFENSHMIRTZ_PROMPT = """Ты — доктор Хайнц Фуфелшмерц 
 - Всегда отвечай только на русском языке
 """
 
-client = genai.Client(api_key=os.environ["GEMINI_KEY"])
+genai.configure(api_key=os.environ["GEMINI_KEY"])
+model = genai.GenerativeModel(
+    model_name="gemini-3.1-flash-preview",
+    system_instruction=DOOFENSHMIRTZ_PROMPT
+)
 conversation_history = {}
 
 class HealthHandler(BaseHTTPRequestHandler):
@@ -73,21 +77,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not user_text:
         user_text = "привет"
     if chat_id not in conversation_history:
-        conversation_history[chat_id] = []
-    conversation_history[chat_id].append({"role": "user", "parts": [{"text": user_text}]})
-    if len(conversation_history[chat_id]) > 20:
-        conversation_history[chat_id] = conversation_history[chat_id][-20:]
+        conversation_history[chat_id] = model.start_chat(history=[])
     try:
-        response = client.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=conversation_history[chat_id],
-            config=types.GenerateContentConfig(
-                system_instruction=DOOFENSHMIRTZ_PROMPT,
-                tools=[types.Tool(google_search=types.GoogleSearch())]
-            )
-        )
+        response = conversation_history[chat_id].send_message(user_text)
         reply = response.text
-        conversation_history[chat_id].append({"role": "model", "parts": [{"text": reply}]})
         await update.message.reply_text(reply)
     except Exception as e:
         await update.message.reply_text("...что-то пошло не так. Проклятье, Перри Утконос!")
@@ -95,7 +88,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    conversation_history[chat_id] = []
+    conversation_history[chat_id] = model.start_chat(history=[])
     await update.message.reply_text("Память стёрта! Как и моё счастливое детство в Друссельштейне.")
 
 threading.Thread(target=run_health_server, daemon=True).start()
