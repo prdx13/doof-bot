@@ -1,4 +1,7 @@
 import os
+import time
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import threading
 from google import genai
 from google.genai import types
 from telegram import Update
@@ -23,6 +26,19 @@ DOOFENSHMIRTZ_PROMPT = """Ты — доктор Хайнц Фуфелшмерц 
 
 client = genai.Client(api_key=os.environ["GEMINI_KEY"])
 conversation_history = {}
+
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"OK")
+    def log_message(self, format, *args):
+        pass
+
+def run_health_server():
+    port = int(os.environ.get("PORT", 10000))
+    server = HTTPServer(("0.0.0.0", port), HealthHandler)
+    server.serve_forever()
 
 def should_respond(update: Update, bot_username: str) -> bool:
     message = update.message
@@ -73,14 +89,13 @@ async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conversation_history[chat_id] = []
     await update.message.reply_text("Память стёрта! Как и моё счастливое детство в Гиммельштумпе.")
 
+threading.Thread(target=run_health_server, daemon=True).start()
+print("Health server запущен")
+time.sleep(20)
+print("Бот запускается...")
+
 app = ApplicationBuilder().token(os.environ["BOT_TOKEN"]).build()
 app.add_handler(CommandHandler("reset", reset_command))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-print("Бот запущен через webhook...")
-app.run_webhook(
-    listen="0.0.0.0",
-    port=int(os.environ.get("PORT", 10000)),
-    webhook_url="https://doof-bot-1.onrender.com/webhook",
-    url_path="/webhook",
-    drop_pending_updates=True
-)
+print("Бот запущен!")
+app.run_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
