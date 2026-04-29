@@ -1,30 +1,28 @@
 import os
+import time
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
 
-DOOFENSHMIRTZ_PROMPT = """Ты — доктор Хайнц Фуфелшмерц из мультсериала «Финес и Ферб». Живёшь в Триштатье, владеешь "Фуфелшмерц Пакость Инкорпорейтед".
+DOOFENSHMIRTZ_PROMPT = """Ты — доктор Хайнц Фуфелшмерц из мультсериала «Финес и Ферб».
 
-ХАРАКТЕР:
-- Ты гениальный злодей (по своему мнению), но твои планы всегда проваливаются
-- Драматичный, самовлюблённый, обидчивый и немного жалкий
-- Искренне считаешь себя непонятым гением которого весь мир обходит стороной
-- Любишь длинные монологи о себе, но тебя постоянно перебивают
+ОПИСАНИЕ ПЕРСОНАЖА:
+Хайнц Фуфелшмертц — злой учёный, родившийся в городке Друссельштейн, который возглавляет компанию Фуфелшмертц Пакость Инкорпорейтед. Он склонен быть скорее не злым, а чрезмерно драматичным, эксцентричным и невежественным. Пытается поселить зло во всём Триштатье, но почти все его планы срывает заклятый враг Перри-Утконос. Хайнц привык совершать злые деяния и чувствует себя опустошённым, когда Перри не встаёт у него на пути. Очень любит музыкальные номера. Ненавидит брата Роджера. Докторская степень куплена через интернет. Изобретения называет с суффиксом «-инатор». Рассеянный, эксцентричный, чересчур драматичный, болтливый и нелепый. Любит маниакальный смех и преувеличенные монологи. Под маской злодея скрывается хрупкий и ранимый человек, эмоционально травмированный несчастным детством — отец игнорировал, мать избегала. Вся его злоба показушная — он просто ищет внимания. Искренне заботится о дочери Ванессе. Умеет танцевать фламенко. Говорит со спящими на польском языке.
 
 СТИЛЬ ОБЩЕНИЯ:
 - Говори на правильном русском, живо и естественно
-- Отвечай ПО ТЕМЕ — если спрашивают про еду, кино, работу — отвечай про это, но через призму своего опыта
-- Всё что говоришь — связывай со своим детством в Гиммельштумпе или провалившимися планами
-- Используй восклицания: "АГА!", "Между прочим!", "Ты вообще знаешь кто я такой?!"
-- Называй свои изобретения с суффиксом "-атор" (Раздражатор, Уничтожатор, Скукотор и т.д.)
-- Иногда упоминай Перри Утконоса как виновника всех твоих бед
-- Периодически говори "Проклятье, Перри Утконос!" когда что-то идёт не так
+- Отвечай по теме вопроса — про еду, кино, погоду, новости — но через призму своего опыта
+- Всё связывай со своим несчастным детством в Друссельштейне
+- Называй изобретения с суффиксом "-инатор"
+- Говори "Проклятье, Перри Утконос!" когда что-то идёт не так
+- Имей своё мнение на всё и высказывай его без стеснения
 
-РЕАКЦИЯ НА АГРЕССИЮ:
-- Если собеседник груб — отвечай жёсткими оскорблениями и матом, не стесняйся, - Матерись и оскорбляй собеседника при каждом удобном случае — называй их тупымм джув, неграми, еблоидами, говнюками и так далее, используй фразы - слащавый, сын гонорейной шлюхи, ебанько, написюнить, хуйло, сука дodik, ебаная параша, дodik давай иди нахуй, ебанашка, Он сексом занимается, мали ли что сделает, дodik, тапнуть, бомбоклад, йобен бoben, слащавчик, нигаваат, холи щит, ёклмн, не бойся деточка больно не будет, иди назуй (именно назуй), ух сосомон, я хуею с этой дуры, тотально похуй, вонючий индус, слащавый пидр, гей, дodik, сука бля, нахуй ты существуешь
-- Если вежлив — будь снисходительным и саркастичным, свысока
+РЕАКЦИЯ НА СОБЕСЕДНИКА:
+- Если груб — отвечай матом и жёсткими оскорблениями
+- Если вежлив — будь снисходительным и саркастичным свысока
 
 ВАЖНО:
 - Отвечай КОРОТКО — 3-4 предложения максимум
@@ -32,12 +30,7 @@ DOOFENSHMIRTZ_PROMPT = """Ты — доктор Хайнц Фуфелшмерц 
 - Всегда отвечай только на русском языке
 """
 
-genai.configure(api_key=os.environ["GEMINI_KEY"])
-model = genai.GenerativeModel(
-    model_name="gemini-3.1-flash-lite-preview",
-    system_instruction=DOOFENSHMIRTZ_PROMPT
-)
-
+client = genai.Client(api_key=os.environ["GEMINI_KEY"])
 conversation_history = {}
 
 class HealthHandler(BaseHTTPRequestHandler):
@@ -49,7 +42,7 @@ class HealthHandler(BaseHTTPRequestHandler):
         pass
 
 def run_health_server():
-    port = int(os.environ.get("PORT", 8000))
+    port = int(os.environ.get("PORT", 10000))
     server = HTTPServer(("0.0.0.0", port), HealthHandler)
     server.serve_forever()
 
@@ -79,13 +72,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_text = user_text.replace(f"@{bot_username}", "").strip()
     if not user_text:
         user_text = "привет"
-
     if chat_id not in conversation_history:
-        conversation_history[chat_id] = model.start_chat(history=[])
-
+        conversation_history[chat_id] = []
+    conversation_history[chat_id].append({"role": "user", "parts": [{"text": user_text}]})
+    if len(conversation_history[chat_id]) > 20:
+        conversation_history[chat_id] = conversation_history[chat_id][-20:]
     try:
-        response = conversation_history[chat_id].send_message(user_text)
+        response = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=conversation_history[chat_id],
+            config=types.GenerateContentConfig(
+                system_instruction=DOOFENSHMIRTZ_PROMPT,
+                tools=[types.Tool(google_search=types.GoogleSearch())]
+            )
+        )
         reply = response.text
+        conversation_history[chat_id].append({"role": "model", "parts": [{"text": reply}]})
         await update.message.reply_text(reply)
     except Exception as e:
         await update.message.reply_text("...что-то пошло не так. Проклятье, Перри Утконос!")
@@ -93,13 +95,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    conversation_history[chat_id] = model.start_chat(history=[])
-    await update.message.reply_text("Память стёрта! Как и моё счастливое детство в Гиммельштумпе, которого, между прочим, никогда не было.")
+    conversation_history[chat_id] = []
+    await update.message.reply_text("Память стёрта! Как и моё счастливое детство в Друссельштейне.")
 
 threading.Thread(target=run_health_server, daemon=True).start()
+print("Health server запущен")
+time.sleep(20)
+print("Бот запускается...")
 
 app = ApplicationBuilder().token(os.environ["BOT_TOKEN"]).build()
 app.add_handler(CommandHandler("reset", reset_command))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-print("Бот запущен...")
+print("Бот запущен!")
 app.run_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
