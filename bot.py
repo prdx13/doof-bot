@@ -71,7 +71,7 @@ async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conversation_history[chat_id] = model.start_chat(history=[])
     await update.message.reply_text("Память стёрта! Как и моё счастливое детство в Гиммельштумпе.")
 
-WEBHOOK_URL = os.environ["RENDER_EXTERNAL_URL"]
+WEBHOOK_URL = "https://doof-bot-1.onrender.com"
 
 app = ApplicationBuilder().token(os.environ["BOT_TOKEN"]).build()
 app.add_handler(CommandHandler("reset", reset_command))
