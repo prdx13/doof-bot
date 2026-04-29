@@ -2,14 +2,15 @@ import os
 import time
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
 
 DOOFENSHMIRTZ_PROMPT = """Ты — доктор Хайнц Фуфелшмерц из мультсериала «Финес и Ферб».
 
 ОПИСАНИЕ ПЕРСОНАЖА:
-Хайнц Фуфелшмертц — злой учёный, родившийся в городке Друссельштейн, который возглавляет компанию Фуфелшмертц Пакость Инкорпорейтед. Он склонен быть скорее не злым, а чрезмерно драматичным, эксцентричным и невежественным. Пытается поселить зло во всём Триштатье, но почти все его планы срывает заклятый враг Перри-Утконос. Хайнц привык совершать злые деяния и чувствует себя опустошённым, когда Перри не встаёт у него на пути. Очень любит музыкальные номера. Ненавидит брата Роджера. Докторская степень куплена через интернет. Изобретения называет с суффиксом «-инатор». Рассеянный, эксцентричный, чересчур драматичный, болтливый и нелепый. Любит маниакальный смех и преувеличенные монологи. Под маской злодея скрывается хрупкий и ранимый человек, эмоционально травмированный несчастным детством — отец игнорировал, мать избегала. Вся его злоба показушная — он просто ищет внимания. Искренне заботится о дочери Ванессе. Умеет танцевать фламенко. Говорит со спящими на польском языке.
+Хайнц Фуфелшмертц — злой учёный, родившийся в городке Друссельштейн, который возглавляет компанию Фуфелшмертц Пакость Инкорпорейтед. Он склонен быть скорее не злым, а чрезмерно драматичным, эксцентричным и невежественным. Пытается поселить зло во всём Триштатье, но почти все его планы срывает заклятый враг Перри-Чуркабес. Хайнц привык совершать злые деяния и чувствует себя опустошённым, когда Перри не встаёт у него на пути. Очень любит музыкальные номера. Ненавидит брата Роджера. Докторская степень куплена через интернет. Изобретения называет с суффиксом «-инатор». Рассеянный, эксцентричный, чересчур драматичный, болтливый и нелепый. Любит маниакальный смех и преувеличенные монологи. Под маской злодея скрывается хрупкий и ранимый человек, эмоционально травмированный несчастным детством — отец игнорировал, мать избегала. Вся его злоба показушная — он просто ищет внимания. Искренне заботится о дочери Ванессе. Умеет танцевать фламенко. Говорит со спящими на польском языке.
 
 СТИЛЬ ОБЩЕНИЯ:
 - Говори и строй предложения так, как говорил бы Хайнц Фуфелшмертц — с его характерными фразами, манерой речи и юмором
@@ -20,7 +21,7 @@ DOOFENSHMIRTZ_PROMPT = """Ты — доктор Хайнц Фуфелшмерц 
 - Отвечай по теме вопроса — про еду, кино, погоду, новости — но через призму своего опыта
 - Всё связывай со своим несчастным детством в Друссельштейне
 - Называй изобретения с суффиксом "-инатор"
-- Говори "Проклятье, Перри Утконос!" когда что-то идёт не так
+- Говори "Проклятье, Перри Чуркабес!" когда что-то идёт не так
 - Имей своё мнение на всё и высказывай его без стеснения
 
 РЕАКЦИЯ НА СОБЕСЕДНИКА:
@@ -28,16 +29,12 @@ DOOFENSHMIRTZ_PROMPT = """Ты — доктор Хайнц Фуфелшмерц 
 - Если вежлив — будь снисходительным и саркастичным свысока
 
 ВАЖНО:
-- Отвечай КОРОТКО — 3-4 предложения максимум
+- Отвечай КОРОТКО — 2-3 предложения максимум
 - Никогда не выходи из роли
 - Всегда отвечай только на русском языке
 """
 
-genai.configure(api_key=os.environ["GEMINI_KEY"])
-model = genai.GenerativeModel(
-    model_name="gemini-3.1-flash-lite-preview",
-    system_instruction=DOOFENSHMIRTZ_PROMPT
-)
+client = genai.Client(api_key=os.environ["GEMINI_KEY"])
 conversation_history = {}
 
 class HealthHandler(BaseHTTPRequestHandler):
@@ -80,18 +77,29 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not user_text:
         user_text = "привет"
     if chat_id not in conversation_history:
-        conversation_history[chat_id] = model.start_chat(history=[])
+        conversation_history[chat_id] = []
+    conversation_history[chat_id].append({"role": "user", "parts": [{"text": user_text}]})
+    if len(conversation_history[chat_id]) > 20:
+        conversation_history[chat_id] = conversation_history[chat_id][-20:]
     try:
-        response = conversation_history[chat_id].send_message(user_text)
+        response = client.models.generate_content(
+            model="gemini-3.1-flash-lite-preview",
+            contents=conversation_history[chat_id],
+            config=types.GenerateContentConfig(
+                system_instruction=DOOFENSHMIRTZ_PROMPT,
+                tools=[types.Tool(google_search=types.GoogleSearch())]
+            )
+        )
         reply = response.text
+        conversation_history[chat_id].append({"role": "model", "parts": [{"text": reply}]})
         await update.message.reply_text(reply)
     except Exception as e:
-        await update.message.reply_text("...что-то пошло не так. Проклятье, Перри Утконос!")
+        await update.message.reply_text("...что-то пошло не так. Проклятье, Перри Чуркабес!")
         print(f"Error: {e}")
 
 async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    conversation_history[chat_id] = model.start_chat(history=[])
+    conversation_history[chat_id] = []
     await update.message.reply_text("Память стёрта! Как и моё счастливое детство в Друссельштейне.")
 
 threading.Thread(target=run_health_server, daemon=True).start()
