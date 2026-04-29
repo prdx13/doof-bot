@@ -94,8 +94,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conversation_history[chat_id].append({"role": "model", "parts": [{"text": reply}]})
         await update.message.reply_text(reply)
     except Exception as e:
-        await update.message.reply_text("...что-то пошло не так. Проклятье, Перри Чуркабес!")
+        await update.message.reply_text("...что-то пошло не так. Проклятье, Перри Утконос!")
+        import traceback
+        print(f"Error type: {type(e).__name__}")
         print(f"Error: {e}")
+        print(traceback.format_exc())
 
 async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
