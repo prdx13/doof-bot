@@ -1,9 +1,7 @@
 import os
-import time
-from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
-from google import genai
-from google.genai import types
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import google.generativeai as genai
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
 
@@ -24,7 +22,12 @@ DOOFENSHMIRTZ_PROMPT = """Ты — доктор Хайнц Фуфелшмерц 
 - Всегда отвечай только на русском языке
 """
 
-client = genai.Client(api_key=os.environ["GEMINI_KEY"])
+genai.configure(api_key=os.environ["GEMINI_KEY"])
+model = genai.GenerativeModel(
+    model_name="gemini-3.1-flash-lite-preview",
+    system_instruction=DOOFENSHMIRTZ_PROMPT
+)
+
 conversation_history = {}
 
 class HealthHandler(BaseHTTPRequestHandler):
@@ -36,7 +39,7 @@ class HealthHandler(BaseHTTPRequestHandler):
         pass
 
 def run_health_server():
-    port = int(os.environ.get("PORT", 10000))
+    port = int(os.environ.get("PORT", 8000))
     server = HTTPServer(("0.0.0.0", port), HealthHandler)
     server.serve_forever()
 
@@ -66,19 +69,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_text = user_text.replace(f"@{bot_username}", "").strip()
     if not user_text:
         user_text = "привет"
+
     if chat_id not in conversation_history:
-        conversation_history[chat_id] = []
-    conversation_history[chat_id].append({"role": "user", "parts": [{"text": user_text}]})
-    if len(conversation_history[chat_id]) > 20:
-        conversation_history[chat_id] = conversation_history[chat_id][-20:]
+        conversation_history[chat_id] = model.start_chat(history=[])
+
     try:
-        response = client.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=conversation_history[chat_id],
-            config=types.GenerateContentConfig(system_instruction=DOOFENSHMIRTZ_PROMPT)
-        )
+        response = conversation_history[chat_id].send_message(user_text)
         reply = response.text
-        conversation_history[chat_id].append({"role": "model", "parts": [{"text": reply}]})
         await update.message.reply_text(reply)
     except Exception as e:
         await update.message.reply_text("...что-то пошло не так. Проклятье, Перри Утконос!")
@@ -86,16 +83,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    conversation_history[chat_id] = []
-    await update.message.reply_text("Память стёрта! Как и моё счастливое детство в Гиммельштумпе.")
+    conversation_history[chat_id] = model.start_chat(history=[])
+    await update.message.reply_text("Память стёрта! Как и моё счастливое детство в Гиммельштумпе, которого, между прочим, никогда не было.")
 
 threading.Thread(target=run_health_server, daemon=True).start()
-print("Health server запущен")
-time.sleep(20)
-print("Бот запускается...")
 
 app = ApplicationBuilder().token(os.environ["BOT_TOKEN"]).build()
 app.add_handler(CommandHandler("reset", reset_command))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-print("Бот запущен!")
+print("Бот запущен...")
 app.run_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
