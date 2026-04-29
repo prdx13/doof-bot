@@ -1,7 +1,7 @@
 import os
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
-import anthropic
+import google.generativeai as genai
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
 
@@ -20,9 +20,13 @@ DOOFENSHMIRTZ_PROMPT = """Ты — доктор Хайнц Фуфелшмерц 
 - Всегда отвечай только на русском языке, что бы тебе ни написали
 """
 
-claude = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_KEY"])
+genai.configure(api_key=os.environ["GEMINI_KEY"])
+model = genai.GenerativeModel(
+    model_name="gemini-3.1-flash-lite-preview",
+    system_instruction=DOOFENSHMIRTZ_PROMPT
+)
+
 conversation_history = {}
-MAX_HISTORY = 20
 
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -63,20 +67,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_text = user_text.replace(f"@{bot_username}", "").strip()
     if not user_text:
         user_text = "привет"
+
     if chat_id not in conversation_history:
-        conversation_history[chat_id] = []
-    conversation_history[chat_id].append({"role": "user", "content": user_text})
-    if len(conversation_history[chat_id]) > MAX_HISTORY:
-        conversation_history[chat_id] = conversation_history[chat_id][-MAX_HISTORY:]
+        conversation_history[chat_id] = model.start_chat(history=[])
+
     try:
-        response = claude.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=1000,
-            system=DOOFENSHMIRTZ_PROMPT,
-            messages=conversation_history[chat_id]
-        )
-        reply = response.content[0].text
-        conversation_history[chat_id].append({"role": "assistant", "content": reply})
+        response = conversation_history[chat_id].send_message(user_text)
+        reply = response.text
         await update.message.reply_text(reply)
     except Exception as e:
         await update.message.reply_text("...что-то пошло не так. Проклятье, Перри Утконос!")
@@ -84,7 +81,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    conversation_history[chat_id] = []
+    conversation_history[chat_id] = model.start_chat(history=[])
     await update.message.reply_text("Память стёрта! Как и моё счастливое детство в Гиммельштумпе, которого, между прочим, никогда не было.")
 
 threading.Thread(target=run_health_server, daemon=True).start()
