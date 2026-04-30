@@ -39,7 +39,7 @@ DOOFENSHMIRTZ_PROMPT = """Ты — доктор Хайнц Фуфелшмерц 
 
 genai.configure(api_key=os.environ["GEMINI_KEY"])
 model = genai.GenerativeModel(
-    model_name="gemini-2.0-flash",
+    model_name="gemini-3.1-flash-lite-preview",
     system_instruction=DOOFENSHMIRTZ_PROMPT,
     tools="google_search_retrieval"
 )
