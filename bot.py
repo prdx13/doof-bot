@@ -87,7 +87,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conversation_history[chat_id] = conversation_history[chat_id][-20:]
     try:
         response = client.models.generate_content(
-            model="gemini-3.1-flash-lite-preview",
+            model="gemini-2.0-flash",
             contents=conversation_history[chat_id],
             config=types.GenerateContentConfig(
                 system_instruction=DOOFENSHMIRTZ_PROMPT,
