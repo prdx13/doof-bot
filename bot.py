@@ -1,12 +1,14 @@
 import os
 import time
 import threading
-import traceback
+import requests
+import logging
+import google.generativeai as genai
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from google import genai
-from google.genai import types
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
+
+logging.basicConfig(level=logging.INFO)
 
 DOOFENSHMIRTZ_PROMPT = """Ты — доктор Хайнц Фуфелшмерц из мультсериала «Финес и Ферб».
 
@@ -35,7 +37,12 @@ DOOFENSHMIRTZ_PROMPT = """Ты — доктор Хайнц Фуфелшмерц 
 - Всегда отвечай только на русском языке
 """
 
-client = genai.Client(api_key=os.environ["GEMINI_KEY"])
+genai.configure(api_key=os.environ["GEMINI_KEY"])
+model = genai.GenerativeModel(
+    model_name="gemini-2.0-flash",
+    system_instruction=DOOFENSHMIRTZ_PROMPT,
+    tools="google_search_retrieval"
+)
 conversation_history = {}
 
 class HealthHandler(BaseHTTPRequestHandler):
@@ -53,6 +60,12 @@ def run_health_server():
     port = int(os.environ.get("PORT", 10000))
     server = HTTPServer(("0.0.0.0", port), HealthHandler)
     server.serve_forever()
+
+def reset_telegram():
+    token = os.environ["BOT_TOKEN"]
+    requests.get(f"https://api.telegram.org/bot{token}/deleteWebhook?drop_pending_updates=true")
+    requests.get(f"https://api.telegram.org/bot{token}/close")
+    time.sleep(10)
 
 def should_respond(update: Update, bot_username: str) -> bool:
     message = update.message
@@ -81,33 +94,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not user_text:
         user_text = "привет"
     if chat_id not in conversation_history:
-        conversation_history[chat_id] = []
-    conversation_history[chat_id].append({"role": "user", "parts": [{"text": user_text}]})
-    if len(conversation_history[chat_id]) > 20:
-        conversation_history[chat_id] = conversation_history[chat_id][-20:]
+        conversation_history[chat_id] = model.start_chat()
     try:
-        response = client.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=conversation_history[chat_id],
-            config=types.GenerateContentConfig(
-                system_instruction=DOOFENSHMIRTZ_PROMPT,
-                tools=[types.Tool(google_search=types.GoogleSearch())]
-            )
-        )
+        response = conversation_history[chat_id].send_message(user_text)
         reply = response.text
-        conversation_history[chat_id].append({"role": "model", "parts": [{"text": reply}]})
         await update.message.reply_text(reply)
     except Exception as e:
+        print(f"GEMINI ERROR: {e}", flush=True)
         await update.message.reply_text("...что-то пошло не так. Проклятье, Перри Утконос!")
-        print(f"Error type: {type(e).__name__}")
-        print(f"Error: {e}")
-        print(traceback.format_exc())
 
 async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    conversation_history[chat_id] = []
+    conversation_history[chat_id] = model.start_chat()
     await update.message.reply_text("Память стёрта! Как и моё счастливое детство в Друссельштейне.")
 
+reset_telegram()
 threading.Thread(target=run_health_server, daemon=True).start()
 print("Health server запущен")
 time.sleep(20)
